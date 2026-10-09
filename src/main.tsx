@@ -21,7 +21,7 @@ function Score({label,value,color}:{label:string;value:number;color:string}){ret
 function App(){
   const [section,setSection]=useState('Overview'); const [selected,setSelected]=useState<Company>(companies[0]); const [showMeeting,setShowMeeting]=useState(false); const [view,setView]=useState<'dashboard'|'hq'>('dashboard'); const [pulse,setPulse]=useState(0); const [toast,setToast]=useState('');
   useEffect(()=>{ const timer=window.setInterval(()=>setPulse(v=>v+1),15000); const channel=supabase?.channel('command-center').on('postgres_changes',{event:'*',schema:'public',table:'companies'},()=>setPulse(v=>v+1)).on('postgres_changes',{event:'*',schema:'public',table:'agents'},()=>setPulse(v=>v+1)).on('postgres_changes',{event:'*',schema:'public',table:'approvals'},()=>setPulse(v=>v+1)).subscribe(); return()=>{window.clearInterval(timer); if(channel) supabase?.removeChannel(channel)}},[]);
-  const notify=(message:string)=>{setToast(message); window.setTimeout(()=>setToast(''),3200)};
+  const notify=(_message:string)=>{setToast('This action needs a connected backend workflow. No task or approval has been created.'); window.setTimeout(()=>setToast(''),6000)};
   const nav=[['Overview',LayoutDashboard],['Discovery',Radar],['Mockups',Sparkles],['Agents',Users],['Meetings',MessageSquare],['Security',ShieldCheck],['Budgets',CircleDollarSign]] as const;
   return <div className="app">
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Command size={18}/></div><div><b>BA Solutions</b><span>Command Center</span></div></div><div className="workspace"><span className="eyebrow">WORKSPACE</span><div className="workspace-row"><span className="live-dot"/> Production ecosystem <ChevronRight size={15}/></div></div><nav>{nav.map(([label,Icon])=><button key={label} className={section===label?'active':''} onClick={()=>setSection(label)}><Icon size={17}/><span>{label}</span>{label==='Mockups'&&<em>3</em>}</button>)}</nav><div className="sidebar-bottom"><div className="security-card"><LockKeyhole size={16}/><div><b>Human approval required</b><span>External actions are paused</span></div></div><div className="profile"><div className="avatar">HO</div><div><b>Human Owner</b><span>Full access</span></div><MoreHorizontal size={16}/></div></div></aside>
@@ -38,6 +38,23 @@ function App(){
 }
 
 function SectionView({section,selected,setSelected,onAction,pulse}:{section:string;selected:Company;setSelected:(c:Company)=>void;onAction:(s:string)=>void;pulse:number}){
+ const [records,setRecords]=useState<Company[]>([]);
+ const [dataStatus,setDataStatus]=useState('Loading company records…');
+ useEffect(()=>{
+  let active=true;
+  async function load(){
+   if(!supabase){setDataStatus('Supabase is not configured. Company records are unavailable.');return;}
+   const {data,error}=await supabase.from('companies').select('name,city,industry,modernization_score,opportunity_score,pipeline_status,summary').order('created_at',{ascending:false});
+   if(!active)return;
+   if(error){setDataStatus('Company records could not be refreshed. Check your sign-in and database access.');return;}
+   setRecords((data??[]).map(row=>({name:row.name,city:row.city,industry:row.industry,score:row.modernization_score??0,opportunity:row.opportunity_score??0,status:row.pipeline_status,summary:row.summary??'',accent:'#d3a85c'})));
+   setDataStatus(data?.length?'Company records refreshed from Supabase.':'No company records available for this session.');
+  }
+  void load();return()=>{active=false};
+ },[pulse]);
+ const companies=records;
+ // Expose query status without claiming that a timer tick synchronized data.
+ useEffect(()=>{document.title=`BA Solutions · ${dataStatus}`},[dataStatus]);
  const copy:Record<string,[string,string]>= {Discovery:['Business discovery','Review qualified North Carolina candidates, audit evidence, and the next research handoff.'],Mockups:['Mockup approval center','Compare directions, inspect mobile behavior, and keep every concept behind human approval.'],Agents:['Agent management','Monitor the 15-role organization, live task state, and authorized actions.'],Meetings:['Meetings','Create an auditable room for authorized agents and preserve decisions for the owner.'],Security:['Security operations','Marcus maintains an independent watch over permissions, incidents, and external actions.'],Budgets:['Token and cost management','Keep spending visible and prevent agents from exceeding approved limits.']};
  const [title,desc]=copy[section]||copy.Discovery; const isMock=section==='Mockups'; return <div className="content"><div className="section-hero"><div><span className="eyebrow">{section.toUpperCase()} · LIVE</span><h1>{title}</h1><p>{desc}</p></div><div className="sync"><span className="live-dot"/> Auto-sync active <small>pulse {pulse}</small></div></div>{isMock?<MockupPanel selected={selected} onAction={onAction}/>:<div className="workspace-grid"><div className="panel"><div className="panel-title"><div><span className="eyebrow">WORK QUEUE</span><h2>Current records</h2></div><span className="status-pill green"><span/> Updating</span></div>{companies.map(c=><button className={`record-row ${selected.name===c.name?'selected':''}`} key={c.name} onClick={()=>setSelected(c)}><div className="company-icon" style={{color:c.accent}}><Building2 size={17}/></div><div><b>{c.name}</b><span>{c.industry} · {c.city}</span></div><strong>{c.status}</strong><ChevronRight size={16}/></button>)}</div><div className="panel"><div className="panel-title"><div><span className="eyebrow">AUTHORIZED ACTIONS</span><h2>Owner controls</h2></div></div><button className="action-row" onClick={()=>onAction(`${section} refresh requested`)}><Play size={16}/><span><b>Run next safe step</b><small>Queue work through the authorized orchestration flow</small></span><ChevronRight size={16}/></button><button className="action-row" onClick={()=>onAction('Approval request created')}><ShieldCheck size={16}/><span><b>Request human approval</b><small>Nothing is published or sent externally</small></span><ChevronRight size={16}/></button><button className="action-row" onClick={()=>onAction('Report opened')}><FileText size={16}/><span><b>Open latest report</b><small>Review the most recent persisted operational record</small></span><ChevronRight size={16}/></button></div></div>}</div>
 }
